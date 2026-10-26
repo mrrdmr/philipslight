@@ -20,15 +20,26 @@ from homeassistant.components.light import (
 from homeassistant.const import ATTR_ENTITY_ID, CONF_HOST, CONF_NAME, CONF_TOKEN
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.util import color, dt
-from miio import (
-    Ceil,
-    Device,
-    DeviceError,
-    DeviceException,
-    PhilipsBulb,
-    PhilipsEyecare,
-    PhilipsMoonlight,
-)
+from miio import Device, DeviceError, DeviceException
+
+# python-miio >= 0.5.7 moved the Philips device classes into
+# ``miio.integrations.light.philips``; older releases exported them at the top
+# level of the package. Supporting both keeps the platform loading on any
+# python-miio version Home Assistant may ship.
+try:  # pragma: no cover - depends on the installed python-miio
+    from miio.integrations.light.philips import (
+        Ceil,
+        PhilipsBulb,
+        PhilipsEyecare,
+        PhilipsMoonlight,
+    )
+except ImportError:  # pragma: no cover - legacy python-miio (< 0.5.7)
+    from miio import (  # type: ignore[attr-defined,no-redef]
+        Ceil,
+        PhilipsBulb,
+        PhilipsEyecare,
+        PhilipsMoonlight,
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -130,19 +141,18 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         hass.data[DATA_KEY] = {}
 
     host = config[CONF_HOST]
-    token = config[CONF_TOKEN]
     name = config[CONF_NAME]
     model = config.get(CONF_MODEL)
     auto_midnight_mode = config.get(CONF_AUTO_MIDNIGHT_MODE)
 
-    _LOGGER.info("Initializing with host %s (token %s...)", host, token[:5])
+    _LOGGER.info("Initializing with host %s", host)
 
     devices = []
     unique_id = None
 
     if model is None:
         try:
-            miio_device = Device(host, token)
+            miio_device = Device(host, config[CONF_TOKEN])
             device_info = await hass.async_add_executor_job(miio_device.info)
             model = device_info.model
             unique_id = f"{model}-{device_info.mac_address}"
@@ -156,7 +166,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             raise PlatformNotReady from ex
 
     if model in ["philips.light.sread1", "philips.light.sread2"]:
-        light = PhilipsEyecare(host, token)
+        light = PhilipsEyecare(host, config[CONF_TOKEN])
         primary_device = XiaomiPhilipsEyecareLamp(name, light, model, unique_id)
         devices.append(primary_device)
         hass.data[DATA_KEY][host] = primary_device
@@ -168,12 +178,12 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         # The ambient light doesn't expose additional services.
         # A hass.data[DATA_KEY] entry isn't needed.
     elif model in ["philips.light.ceiling", "philips.light.zyceiling"]:
-        light = Ceil(host, token)
+        light = Ceil(host, config[CONF_TOKEN])
         device = XiaomiPhilipsCeilingLamp(name, light, model, unique_id)
         devices.append(device)
         hass.data[DATA_KEY][host] = device
     elif model == "philips.light.moonlight":
-        light = PhilipsMoonlight(host, token)
+        light = PhilipsMoonlight(host, config[CONF_TOKEN])
         device = XiaomiPhilipsMoonlightLamp(
             name, light, model, unique_id, auto_midnight_mode
         )
@@ -185,7 +195,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         "philips.light.candle2",
         "philips.light.downlight",
     ]:
-        light = PhilipsBulb(host, token)
+        light = PhilipsBulb(host, config[CONF_TOKEN])
         device = XiaomiPhilipsBulb(name, light, model, unique_id)
         devices.append(device)
         hass.data[DATA_KEY][host] = device
@@ -193,7 +203,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         "philips.light.mono1",
         "philips.light.hbulb",
     ]:
-        light = PhilipsBulb(host, token)
+        light = PhilipsBulb(host, config[CONF_TOKEN])
         device = XiaomiPhilipsGenericLight(name, light, model, unique_id)
         devices.append(device)
         hass.data[DATA_KEY][host] = device
